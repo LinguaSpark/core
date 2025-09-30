@@ -204,9 +204,34 @@ impl Translator {
         };
 
         if translated_text_ptr.is_null() {
-            return Err(TranslatorError::TranslationFailed(
-                "null pointer returned".to_string(),
-            ));
+            // Workaround for null pointer error: try adding a "/" prefix
+            let modified_input = format!("/{}", input_text);
+            let modified_input_cstr = CString::new(modified_input)?;
+            let retry_ptr = unsafe {
+                bergamot_translate(
+                    self.inner,
+                    from_cstr.as_ptr(),
+                    to_cstr.as_ptr(),
+                    modified_input_cstr.as_ptr(),
+                )
+            };
+
+            if retry_ptr.is_null() {
+                return Err(TranslatorError::TranslationFailed(
+                    "null pointer returned".to_string(),
+                ));
+            }
+
+            let translated_text_cstr = unsafe { CStr::from_ptr(retry_ptr) };
+            let mut translated_text = translated_text_cstr.to_string_lossy().into_owned();
+            
+            // Remove the leading "/" from the result if it exists
+            if translated_text.starts_with('/') {
+                translated_text = translated_text[1..].to_string();
+            }
+
+            unsafe { bergamot_free_translation(retry_ptr) };
+            return Ok(translated_text);
         }
 
         let translated_text_cstr = unsafe { CStr::from_ptr(translated_text_ptr) };
