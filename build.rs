@@ -1,9 +1,9 @@
 fn main() {
     let target = std::env::var("TARGET").unwrap();
     let out_dir = std::env::var("OUT_DIR").unwrap();
-    let file_name = if cfg!(target_os = "windows") {
+    let file_name = if target.contains("windows") {
         "linguaspark.dll"
-    } else if cfg!(target_os = "macos") {
+    } else if target.contains("apple") {
         "liblinguaspark.dylib"
     } else {
         "liblinguaspark.so"
@@ -16,14 +16,14 @@ fn main() {
     {
         println!("cargo:rustc-link-search={}", dynlib_path);
     } else {
-        let archive_name = if cfg!(target_os = "linux") {
-            if cfg!(target_arch = "x86_64") {
+        let archive_name = match target.as_str() {
+            target if target.starts_with("x86_64") && target.contains("linux") => {
                 "linguaspark-x86_64-linux.tar.gz"
-            } else {
-                panic!("Please build the dynamic library for your architecture")
             }
-        } else {
-            panic!("Please build the dynamic library for your OS")
+            target if target.starts_with("aarch64") && target.contains("linux") => {
+                "linguaspark-aarch64-linux.tar.gz"
+            }
+            _ => panic!("Please build the dynamic library for target {target}"),
         };
 
         let url =

@@ -13,16 +13,26 @@ on:
         type: boolean
 
 jobs:
-  build-and-release:
+  build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            archive_arch: x86_64
+          - platform: linux/arm64
+            archive_arch: aarch64
     permissions:
-      contents: write
+      contents: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 0
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -33,20 +43,46 @@ jobs:
           context: .
           push: false
           load: true
-          platforms: linux/amd64
-          tags: linguaspark-builder:latest
+          platforms: ${{ matrix.platform }}
+          tags: linguaspark-builder:${{ matrix.archive_arch }}
 
       - name: Extract compiled libraries from Docker container
         run: |
           mkdir -p artifacts
-          docker create --name temp-container linguaspark-builder:latest
+          docker create --name temp-container linguaspark-builder:${{ matrix.archive_arch }}
           docker cp temp-container:/build/liblinguaspark.so ./artifacts/
-          docker cp temp-container:/build/libiomp5.so ./artifacts/
+          if [[ "${{ matrix.platform }}" == "linux/amd64" ]]; then
+            docker cp temp-container:/build/libiomp5.so ./artifacts/
+          fi
           docker rm temp-container
 
           cd artifacts
-          tar -czvf linguaspark-x86_64-linux.tar.gz liblinguaspark.so libiomp5.so
+          tar -czvf linguaspark-${{ matrix.archive_arch }}-linux.tar.gz ./*.so
+          rm ./*.so
           cd ..
+
+      - name: Upload compiled libraries
+        uses: actions/upload-artifact@v4
+        with:
+          name: linguaspark-${{ matrix.archive_arch }}-linux
+          path: artifacts/*.tar.gz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download compiled libraries
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
 
       - name: Get version information
         id: get_version
@@ -69,4 +105,4 @@ jobs:
           name: Release ${{ steps.get_version.outputs.VERSION }}
           tag: ${{ steps.get_version.outputs.IS_LATEST == 'true' && 'latest' || github.ref_name }}
           allowUpdates: true
-          artifacts: "artifacts/linguaspark-x86_64-linux.tar.gz"
+          artifacts: "artifacts/*.tar.gz"
